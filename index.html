@@ -1,0 +1,135 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sentinel Clinical Data Management</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="lock-banner" class="lock-banner hidden">Database locked — viewing read-only</div>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">Sentinel</div>
+        <div class="brand-sub">Clinical Data Management</div>
+      </div>
+      <nav class="nav">
+        <button class="nav-item active" data-screen="live-ops">Live Ops</button>
+        <button class="nav-item" data-screen="screen-agent-network">Agent Network</button>
+        <button class="nav-item" data-screen="data-explorer">Data Explorer</button>
+        <button class="nav-item" data-screen="issue-inbox">Issue Inbox <span class="badge" id="badge-issues">0</span></button>
+        <button class="nav-item" data-screen="subject-timeline">Subject Timeline</button>
+        <button class="nav-item" data-screen="approvals">Approvals <span class="badge" id="badge-approvals">0</span></button>
+        <button class="nav-item" data-screen="user-inputs">User Inputs <span class="badge" id="badge-inputs">0</span></button>
+        <button class="nav-item" data-screen="lock-readiness">Lock & Readiness</button>
+        <button class="nav-item" data-screen="audit-reports">Audit & Reports</button>
+      </nav>
+      <div class="sidebar-footer">
+        <div class="lock-indicator" id="sidebar-lock-indicator">
+          <span class="dot"></span>
+          <span>Lock Mode</span>
+        </div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div>
+          <div class="page-title">GenAI Clinical Data Management</div>
+          <div class="page-subtitle">System detected issues. Pending your review.</div>
+        </div>
+        <div class="topbar-actions">
+          <span id="lock-mode-pill" class="pill hidden">Lock Mode</span>
+          <button id="open-chat" class="ghost">Ask Sentinel</button>
+        </div>
+      </header>
+
+      <section id="live-ops" class="screen active">
+        <div class="screen-title">Live Operations</div>
+        <div id="live-ops-content"></div>
+      </section>
+
+      <section id="screen-agent-network" class="screen">
+        <div class="screen-title">Agent Network</div>
+        <div id="agent-network-content"></div>
+      </section>
+
+      <section id="data-explorer" class="screen">
+        <div class="screen-title">Data Explorer</div>
+        <div id="data-explorer-content"></div>
+      </section>
+
+      <section id="issue-inbox" class="screen">
+        <div class="screen-title">Issue Inbox</div>
+        <div id="issue-inbox-content"></div>
+      </section>
+
+      <section id="subject-timeline" class="screen">
+        <div class="screen-title">Subject Timeline</div>
+        <div id="subject-timeline-content"></div>
+      </section>
+
+      <section id="approvals" class="screen">
+        <div class="screen-title">Approvals Center</div>
+        <div id="approvals-content"></div>
+      </section>
+
+      <section id="user-inputs" class="screen">
+        <div class="screen-title">User Inputs</div>
+        <div id="user-inputs-content"></div>
+      </section>
+
+      <section id="lock-readiness" class="screen">
+        <div class="screen-title">Lock & Readiness</div>
+        <div id="lock-readiness-content"></div>
+      </section>
+
+      <section id="audit-reports" class="screen">
+        <div class="screen-title">Audit & Reports</div>
+        <div id="audit-reports-content"></div>
+      </section>
+    </main>
+  </div>
+
+  <div id="issue-detail-modal" class="modal hidden">
+    <div class="modal-backdrop" data-close="true"></div>
+    <div class="modal-card">
+      <button class="modal-close" data-close="true">×</button>
+      <div id="issue-detail-content"></div>
+    </div>
+  </div>
+
+  <div id="chat-widget" class="chat-widget">
+    <button id="chat-toggle" class="chat-toggle">💬</button>
+    <div id="chat-panel" class="chat-panel hidden">
+      <div class="chat-header">
+        <div>
+          <div class="chat-title">Ask Sentinel</div>
+          <div class="chat-subtitle">Ask me about lock blockers, subject timelines, or pending approvals.</div>
+        </div>
+        <button id="chat-close" class="chat-close">×</button>
+      </div>
+      <div id="chat-messages" class="chat-messages"></div>
+      <div class="chat-suggestions">
+        <button class="chip" data-chat="lock blockers">Lock blockers</button>
+        <button class="chip" data-chat="subject 101">Subject 101</button>
+        <button class="chip" data-chat="self-heal">Self-heal proposals</button>
+      </div>
+      <div class="chat-input">
+        <input id="chat-input" type="text" placeholder="Ask a question..." />
+        <button id="chat-send" class="primary">→</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast-container" class="toast-container"></div>
+
+  <script src="data.js"></script>
+  <script src="script.js"></script>
+</body>
+</html>
+
