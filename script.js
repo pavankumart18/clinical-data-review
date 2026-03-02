@@ -1,6 +1,6 @@
 ﻿
 /**
- * Sentinel CDM UI (vanilla JS)
+ * Aegis CDM UI (vanilla JS)
  * All screens render from APP_* constants loaded via data.js.
  */
 
@@ -246,8 +246,25 @@ function renderLiveOps() {
   );
 
   const readiness = parseReadiness(APP_REPORTS.lock_readiness_pack || "");
+  const introCard = `
+    <div class="card" style="margin-bottom:12px;">
+      <div class="flex-row" style="justify-content: space-between; align-items: flex-start;">
+        <div>
+          <strong>What This System Does</strong>
+          <div class="text-muted" style="margin-top:6px;">
+            1. Ingests EDC, Labs, Safety, Medications, and Device streams.<br>
+            2. Runs steward checks to detect chronology, safety, endpoint, and operational issues.<br>
+            3. Suggests self-heal changes where policy allows; routes unresolved items to Site Query, Human Decision, or Lock Blocker queues.<br>
+            4. Builds subject timelines so reviewers can approve, reject, or request clarification with full evidence.
+          </div>
+        </div>
+        <span class="chip info">Audit logged</span>
+      </div>
+    </div>
+  `;
 
   container.innerHTML = `
+    ${introCard}
     <div class="steward-row">${stewardCards}</div>
     <div class="grid-2">
       <div class="card">
