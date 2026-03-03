@@ -20,6 +20,7 @@ const APP_STATE = {
   agentLoop: null,
   globalAutomationLoop: null,
   simulationCycle: 0,
+  lastAutomationAt: null,
   currentSubjectId: null,
   dataTab: "EDC",
   sort: { column: null, dir: "asc" },
@@ -143,6 +144,509 @@ function infoTip(text) {
   return `<span class="info-tip"><button class="info-btn" type="button" aria-label="Information">i</button><span class="info-pop">${text}</span></span>`;
 }
 
+const SCREEN_GUIDES = {
+  "live-ops": {
+    title: "Live Operations Guide",
+    purpose: "Use this screen for a real-time overview of data quality pressure and review workload.",
+    watch: "Watch steward counts, top-priority issues, and readiness metrics to understand current risk.",
+    story: "Story it tells: what entered today, what was flagged, and where human attention is needed first.",
+    score: "Readiness is a percentage out of 100. Lower values mean more open blockers and unresolved critical items.",
+    act: "Click a subject or issue to drill into timeline and evidence before taking action.",
+  },
+  "screen-agent-network": {
+    title: "Agent Network Guide",
+    purpose: "This screen explains how incoming data is processed layer by layer.",
+    watch: "Watch ingestion, steward detections, cross-linking, and queue routing into human decisions.",
+    story: "Story it tells: many signals enter at the top; only policy-sensitive items flow down to human review, with explicit routing basis shown.",
+    score: "All steward and queue counts are synchronized from the same master issue list to avoid drift.",
+    act: "Use it to explain governance: agents detect and propose, humans approve and decide.",
+  },
+  "data-explorer": {
+    title: "Data Explorer Guide",
+    purpose: "Use this screen to validate source records behind every detection.",
+    watch: "Use tabs, search, and sorting to trace suspicious values and chronology errors.",
+    story: "Story it tells: every issue can be traced back to an observable source row and field value.",
+    score: "No derived score here. This is source-of-truth evidence view.",
+    act: "Open flagged rows to review evidence and proposed actions.",
+  },
+  "issue-inbox": {
+    title: "Issue Inbox Guide",
+    purpose: "Use this as the central triage queue for all open findings.",
+    watch: "Use routing shortcut buttons and filters by severity, custodian, and action to focus reviewer effort.",
+    story: "Story it tells: each item is routed by policy basis into self-heal, query, human decision, or lock blocker paths.",
+    score: "Confidence is a 0-100% estimate of detection certainty, not clinical severity.",
+    act: "Open issue cards to review evidence and route to approvals, queries, or decisions.",
+  },
+  "subject-timeline": {
+    title: "Subject Timeline Guide",
+    purpose: "Use this to understand each subject as a clinical story, not isolated rows.",
+    watch: "Follow event order, cross-source links, and unresolved loops.",
+    story: "Story it tells: temporal sequence plus contradictions across systems for one subject.",
+    score: "Risk Score is points (not percent): LOCKx10 + SAFETYx7 + ENDPOINTx5 + OPERATIONALx1.",
+    act: "Prioritize high-risk subjects and confirm whether signals are clinically meaningful.",
+  },
+  "approvals": {
+    title: "Approvals Guide",
+    purpose: "Use this queue to approve or reject safe system-proposed corrections.",
+    watch: "Compare before/after diffs and evidence before approving.",
+    story: "Story it tells: safe, explainable fixes pending explicit human authorization.",
+    score: "Queue count shows pending approvals after excluding already approved/rejected items in this session.",
+    act: "Approve only when evidence is sufficient; rejected items remain for follow-up.",
+  },
+  "user-inputs": {
+    title: "Human Decisions Guide",
+    purpose: "Use this queue for ambiguous or policy-restricted decisions that require judgment.",
+    watch: "Review context and complete structured forms with rationale.",
+    story: "Story it tells: issues where rules alone are insufficient and clinical judgment is required.",
+    score: "Queue count shows pending decision requests after excluding completed decisions in this session.",
+    act: "Submit clear decisions to unblock downstream governance and lock readiness.",
+  },
+  "lock-readiness": {
+    title: "Lock Readiness Guide",
+    purpose: "Use this view to decide whether the database is ready for lock/freeze.",
+    watch: "Track blockers, checklist status, and readiness score trend.",
+    story: "Story it tells: what still prevents lock and which actions reduce residual risk.",
+    score: "Readiness is percent out of 100 based on open blockers, unresolved critical findings, and pending queues.",
+    act: "Resolve blockers and critical queries before enabling lock mode.",
+  },
+  "audit-reports": {
+    title: "Audit and Reports Guide",
+    purpose: "Use this screen for compliance evidence and review documentation.",
+    watch: "Inspect actor/action traces and final reporting outputs.",
+    story: "Story it tells: complete accountability path from detection through human action.",
+    score: "No single score. Trace completeness and chronological integrity are the key checks.",
+    act: "Use trace view for issue lineage and reports for sign-off discussions.",
+  },
+};
+
+const SCREEN_LABELS = {
+  "live-ops": "Live Operations",
+  "screen-agent-network": "Agent Network",
+  "data-explorer": "Data Explorer",
+  "issue-inbox": "Issue Inbox",
+  "subject-timeline": "Subject Timeline",
+  approvals: "Approvals Center",
+  "user-inputs": "User Inputs",
+  "lock-readiness": "Lock & Readiness",
+  "audit-reports": "Audit & Reports",
+};
+
+const SCREEN_MANUAL = {
+  "live-ops": {
+    objective: "High-level operational pulse. This is your first stop to understand current risk pressure and where to focus reviewer attention.",
+    inputs: ["All detected issues", "Activity stream updates every 2 seconds", "Current queue counts and lock status"],
+    explains: ["Which stewards are active", "Which subjects are currently highest priority", "How readiness is moving over time"],
+    how_to_tell_story: ["Start with total issues and lock blockers.", "Move to attention panel and click one high-priority subject.", "Use feed messages to show how detections arrived over time."],
+    score_logic: "Readiness here is a percentage out of 100. It decreases when lock blockers, unresolved critical issues, and pending decisions/queries increase.",
+  },
+  "screen-agent-network": {
+    objective: "Shows the full processing chain from data ingestion through steward checks to governance routing and human escalation.",
+    inputs: ["Current sample row counts per source", "Issue list grouped by steward", "Queue state after governance classification"],
+    explains: ["What each steward searches for", "Why issues are routed to self-heal/query/human/blocker", "How many items are still waiting for human action"],
+    how_to_tell_story: ["Point to each steward's 'Searches' and 'Does' lines.", "Use routing basis cards to explain policy decisions.", "Click route buttons to jump into exact queues and prove consistency."],
+    score_logic: "No single score. This screen is about workflow integrity and consistent counts. Numbers are synchronized to the same underlying issue/queue state.",
+  },
+  "data-explorer": {
+    objective: "Evidence validation screen. Confirms every detection can be traced to source rows.",
+    inputs: ["Raw/normalized source tables", "Issue-to-row linkage by source file and row id"],
+    explains: ["Where suspicious values came from", "Whether chronology and unit context are valid", "Which rows are currently linked to open issues"],
+    how_to_tell_story: ["Switch tabs by source.", "Search for a subject and open a flagged row.", "Show that issue decisions are traceable to concrete fields."],
+    score_logic: "No score. This screen is for data traceability and audit confidence.",
+  },
+  "issue-inbox": {
+    objective: "Primary triage queue for all findings with operational filters and routing shortcuts.",
+    inputs: ["Master issue list", "Severity/action metadata", "Queue mapping context"],
+    explains: ["Which items are self-healable vs needing query vs needing human decision", "How lock impact changes triage priority", "Detection confidence vs severity impact"],
+    how_to_tell_story: ["Use routing shortcut cards first.", "Filter to lock-critical and show immediate blockers.", "Open one issue to show evidence and action options."],
+    score_logic: "Confidence bar is 0-100% detection certainty only. Severity and lock-impact drive business risk and escalation, not confidence alone.",
+  },
+  "subject-timeline": {
+    objective: "Subject-centric clinical story view joining events and inconsistencies across domains.",
+    inputs: ["Timeline events from all sources", "Linked issue ids", "Open loops and severity counts"],
+    explains: ["Event sequence and contradictions", "Why this subject has current priority", "What remains unresolved for this subject"],
+    how_to_tell_story: ["Pick highest-risk subject.", "Walk chronologically through events.", "Use linked issue badges to open evidence from timeline."],
+    score_logic: "Risk Score is points (not percent): Lock×10 + Safety×7 + Endpoint×5 + Operational×1 using current issues for that subject.",
+  },
+  approvals: {
+    objective: "Controlled approval gate for reversible, low-risk corrections proposed by the system.",
+    inputs: ["Items marked SELF_HEAL", "Proposed before/after diffs", "Evidence references"],
+    explains: ["Why a correction is considered safe", "What changes before execution", "How approval updates governance queues"],
+    how_to_tell_story: ["Show one unit/standardization correction.", "Tick evidence review checkbox and approve.", "Show badge and queue count drop immediately."],
+    score_logic: "Queue count is pending items only (excluding those approved/rejected this session).",
+  },
+  "user-inputs": {
+    objective: "Human judgment queue for ambiguous, contradictory, or policy-restricted items.",
+    inputs: ["Items marked NEEDS_HUMAN_DECISION", "Structured decision forms", "Required rationale capture"],
+    explains: ["Why rules are insufficient in these cases", "What specific clinical/data judgment is required", "How decisions unblock downstream processes"],
+    how_to_tell_story: ["Open one conflict case.", "Fill structured answer + rationale.", "Submit and show queue decrement."],
+    score_logic: "Queue count is pending human decisions only; completed submissions are removed from active queue.",
+  },
+  "lock-readiness": {
+    objective: "Governance checkpoint for lock/freeze decision readiness.",
+    inputs: ["Blocker list", "Critical severity totals", "Pending decision/query queues"],
+    explains: ["What specifically blocks lock", "Why readiness changed", "What must be resolved before freeze"],
+    how_to_tell_story: ["Start with readiness percent and checklist.", "Click blockers for detail.", "Toggle lock mode to show read-only governance behavior."],
+    score_logic: "Readiness is a percentage out of 100 using configured penalties for blockers, critical severities, and unresolved queues.",
+  },
+  "audit-reports": {
+    objective: "Compliance and accountability view of all key actions and report outputs.",
+    inputs: ["Audit log entries", "Issue trace references", "Generated reports"],
+    explains: ["Who did what and when", "How one issue moved across lifecycle steps", "What is documented for sign-off"],
+    how_to_tell_story: ["Filter audit rows by actor/action.", "Use trace view for one issue lifecycle.", "Open reports for review-pack context."],
+    score_logic: "No single score. Evaluate completeness and chronology of trace and report artifacts.",
+  },
+};
+
+const SCORE_MODEL = {
+  risk_weights: {
+    LOCK_CRITICAL: 10,
+    SAFETY_CRITICAL: 7,
+    ENDPOINT_CRITICAL: 5,
+    OPERATIONAL: 1,
+  },
+  readiness: {
+    base: 100,
+    lock_blocker_penalty: 8,
+    safety_critical_penalty: 3,
+    endpoint_critical_penalty: 2,
+    pending_query_penalty: 1,
+    pending_human_penalty: 1,
+    min: 35,
+  },
+};
+
+const AGENT_ROLE_GUIDE = {
+  edc: {
+    searches: "Visit chronology, missing randomization, endpoint outliers, duplicate visits, demographic contradictions.",
+    does: "Creates site queries for date/field gaps and proposes safe data fixes (like decimal or duplicate merges) for approval.",
+    escalates: "Escalates when issues affect lock, endpoint interpretation, or remain ambiguous after rule checks.",
+  },
+  lab: {
+    searches: "Unit mismatches, lab collection/receipt chronology, specimen collisions, and trend-based safety signals.",
+    does: "Proposes reversible unit conversions and flags rising enzyme trends for medical review.",
+    escalates: "Escalates lock-impacting specimen conflicts and safety trends needing clinical judgment.",
+  },
+  safety: {
+    searches: "AE/SAE chronology errors, missing seriousness details, and duplicate event coding conflicts.",
+    does: "Routes missing/invalid safety fields to site query and links events for reviewer context.",
+    escalates: "Escalates serious, incomplete, or lock-critical events because policy requires human sign-off.",
+  },
+  meds: {
+    searches: "Medication date conflicts, naming standardization opportunities, and history contradictions.",
+    does: "Proposes medication name standardization and flags contradiction cases for decision.",
+    escalates: "Escalates when medication history conflicts with investigator statements or safety context.",
+  },
+  device: {
+    searches: "Impossible vitals, timezone drift, and compliance gaps from device/ePRO submissions.",
+    does: "Flags implausible measurements and sends compliance gaps to query workflow.",
+    escalates: "Escalates safety spikes and unresolved chronology/compliance anomalies for human review.",
+  },
+};
+
+const ACTION_BASIS = {
+  SELF_HEAL: "Self-heal: reversible, low-risk data normalization (units, naming, dedup) with full before/after trace. Still requires your approval.",
+  NEEDS_QUERY: "Site Query: source record is incomplete/inconsistent, and only site/investigator can confirm the truth.",
+  NEEDS_HUMAN_DECISION: "Human Decision: ambiguity or cross-source contradiction where clinical/program judgment is required.",
+  LOCK_CRITICAL: "Lock Blocker: issue can compromise lock readiness or data integrity and must be resolved before freeze.",
+};
+
+function countUnique(arr, key) {
+  const set = new Set(arr.map((x) => x?.[key]).filter(Boolean));
+  return set.size;
+}
+
+function computeConsistencyReport() {
+  const issues = APP_ISSUES || [];
+  const byId = new Map(issues.map((i) => [i.issue_id, i]));
+  const lockBlockers = APP_LOCK_BLOCKERS || [];
+  const approvals = APP_PENDING_APPROVALS || [];
+  const decisions = APP_HUMAN_DECISIONS || [];
+  const siteQueries = APP_SITE_QUERIES || [];
+  const timelines = APP_SUBJECT_TIMELINES || {};
+
+  const duplicates = issues.length - countUnique(issues, "issue_id");
+  const missingFromIssues = (arr) => arr.filter((x) => !byId.has(x.issue_id)).length;
+  const wrongSeverity = lockBlockers.filter((x) => x.severity !== "LOCK_CRITICAL").length;
+  const wrongApprovalAction = approvals.filter((x) => x.suggested_action !== "SELF_HEAL").length;
+  const wrongDecisionAction = decisions.filter((x) => x.suggested_action !== "NEEDS_HUMAN_DECISION").length;
+  const wrongQueryAction = siteQueries.filter((x) => x.suggested_action !== "NEEDS_QUERY").length;
+  const missingTimeline = issues.filter((x) => x.entity_keys?.subject_id && !timelines[x.entity_keys.subject_id]).length;
+  const agentTreeMismatches = [];
+  if (typeof APP_AGENT_TREE !== "undefined" && APP_AGENT_TREE?.stewards) {
+    const map = {
+      edc: "edc_form_custodian",
+      lab: "lab_signal_custodian",
+      safety: "safety_event_custodian",
+      meds: "meds_history_custodian",
+      device: "device_epro_custodian",
+    };
+    APP_AGENT_TREE.stewards.forEach((s) => {
+      const expected = issues.filter((i) => i.custodian === map[s.id]).length;
+      if ((s.issues_found || 0) !== expected) {
+        agentTreeMismatches.push(`${s.name} count mismatch (${s.issues_found} shown vs ${expected} expected).`);
+      }
+    });
+  }
+
+  const errors = [];
+  const warnings = [];
+  if (duplicates > 0) errors.push(`${duplicates} duplicate issue IDs found.`);
+  if (missingFromIssues(lockBlockers) > 0) errors.push(`${missingFromIssues(lockBlockers)} lock blocker items are not in the master issue list.`);
+  if (missingFromIssues(approvals) > 0) errors.push(`${missingFromIssues(approvals)} approval items are not in the master issue list.`);
+  if (missingFromIssues(decisions) > 0) errors.push(`${missingFromIssues(decisions)} human decision items are not in the master issue list.`);
+  if (missingFromIssues(siteQueries) > 0) errors.push(`${missingFromIssues(siteQueries)} site query items are not in the master issue list.`);
+  if (wrongSeverity > 0) errors.push(`${wrongSeverity} lock blocker items are not lock-critical.`);
+  if (wrongApprovalAction > 0) warnings.push(`${wrongApprovalAction} approvals are not marked SELF_HEAL.`);
+  if (wrongDecisionAction > 0) warnings.push(`${wrongDecisionAction} human decisions are not marked NEEDS_HUMAN_DECISION.`);
+  if (wrongQueryAction > 0) warnings.push(`${wrongQueryAction} site queries are not marked NEEDS_QUERY.`);
+  if (missingTimeline > 0) warnings.push(`${missingTimeline} issues have no subject timeline mapping yet.`);
+  if (agentTreeMismatches.length > 0) warnings.push(...agentTreeMismatches);
+
+  const ok = errors.length === 0;
+  const status = ok ? "Consistent" : "Needs attention";
+  const details = [...errors, ...warnings];
+  return { ok, status, details };
+}
+
+function renderConsistencyBadge() {
+  const report = computeConsistencyReport();
+  const cls = report.ok ? "consistency-ok" : "consistency-warn";
+  const details = report.details.length ? report.details.join(" ") : "No structural mismatches detected across issues and queues.";
+  return `
+    <span class="consistency-pill ${cls}">
+      <strong>Data Consistency:</strong> ${report.status}
+      ${infoTip(details)}
+    </span>
+  `;
+}
+
+function renderScreenGuide(screenKey) {
+  const guide = SCREEN_GUIDES[screenKey];
+  if (!guide) return "";
+  return `
+    <div class="card screen-guide">
+      <div class="screen-guide-head">
+        <strong>${guide.title}</strong>
+        ${renderConsistencyBadge()}
+      </div>
+      <div class="screen-guide-grid">
+        <div><strong>Purpose:</strong> ${guide.purpose}</div>
+        <div><strong>What to Watch:</strong> ${guide.watch}</div>
+        <div><strong>Storyline:</strong> ${guide.story}</div>
+        <div><strong>Score Basis:</strong> ${guide.score}</div>
+        <div><strong>What to Do:</strong> ${guide.act}</div>
+      </div>
+    </div>
+  `;
+}
+
+function renderScreenManual(screenId) {
+  const key = screenId || APP_STATE.currentScreen || "live-ops";
+  const details = SCREEN_MANUAL[key] || SCREEN_MANUAL["live-ops"];
+  const content = qs("#screen-guide-content");
+  if (!content) return;
+
+  const tabs = SCREENS.map((id) => `
+    <button class="manual-tab ${id === key ? "active" : ""}" data-manual-screen="${id}">
+      ${SCREEN_LABELS[id] || id}
+    </button>
+  `).join("");
+
+  const list = (items) => `<ul class="manual-list">${(items || []).map((x) => `<li>${x}</li>`).join("")}</ul>`;
+  const clean = (t) => (t || "").replace(/\s+/g, " ").trim().replace(/\.$/, "");
+  const joinSentence = (items) => {
+    const parts = (items || []).map((x) => clean(x)).filter(Boolean);
+    if (!parts.length) return "";
+    if (parts.length === 1) return `${parts[0]}.`;
+    if (parts.length === 2) return `${parts[0]} and ${parts[1]}.`;
+    return `${parts.slice(0, -1).join(", ")}, and ${parts[parts.length - 1]}.`;
+  };
+  const inputSentence = `This screen pulls from ${joinSentence(details.inputs)}`;
+  const explainSentence = `This screen helps users understand ${joinSentence(details.explains)}`;
+  const storySentence = `A clear explanation flow is ${joinSentence(details.how_to_tell_story)}`;
+
+  content.innerHTML = `
+    <div class="manual-top">
+      <h2 style="margin:0;">Screen Guide: ${SCREEN_LABELS[key] || key}</h2>
+      <div class="manual-subtitle">Detailed screen explanation for users and reviewers.</div>
+      <div class="manual-screen-tabs">${tabs}</div>
+    </div>
+    <div class="manual-grid">
+      <div class="manual-section">
+        <h3>Objective</h3>
+        <div class="manual-subtitle">${details.objective}</div>
+      </div>
+      <div class="manual-section">
+        <h3>Data Inputs</h3>
+        ${list(details.inputs)}
+        <div class="manual-subtitle manual-sentence">${inputSentence}</div>
+      </div>
+      <div class="manual-section">
+        <h3>What It Explains</h3>
+        ${list(details.explains)}
+        <div class="manual-subtitle manual-sentence">${explainSentence}</div>
+      </div>
+      <div class="manual-section">
+        <h3>How To Present It</h3>
+        ${list(details.how_to_tell_story)}
+        <div class="manual-subtitle manual-sentence">${storySentence}</div>
+      </div>
+      <div class="manual-section" style="grid-column: 1 / -1;">
+        <h3>Score/Metric Basis</h3>
+        <div class="manual-subtitle">${details.score_logic}</div>
+      </div>
+    </div>
+  `;
+
+  qsa(".manual-tab").forEach((btn) => {
+    btn.addEventListener("click", () => renderScreenManual(btn.dataset.manualScreen));
+  });
+}
+
+function openScreenManual(screenId) {
+  renderScreenManual(screenId || APP_STATE.currentScreen);
+  qs("#screen-guide-modal")?.classList.remove("hidden");
+}
+
+function closeScreenManual() {
+  qs("#screen-guide-modal")?.classList.add("hidden");
+}
+
+function pendingCounts() {
+  return {
+    approvals: APP_PENDING_APPROVALS.filter((i) => !APP_STATE.approvedIssues.has(i.issue_id)).length,
+    decisions: APP_HUMAN_DECISIONS.filter((i) => !APP_STATE.completedDecisions.has(i.issue_id)).length,
+    queries: APP_SITE_QUERIES.length,
+    blockers: APP_LOCK_BLOCKERS.length,
+  };
+}
+
+function issueSeverityCounts() {
+  return APP_ISSUES.reduce((acc, i) => {
+    acc[i.severity] = (acc[i.severity] || 0) + 1;
+    return acc;
+  }, { LOCK_CRITICAL: 0, SAFETY_CRITICAL: 0, ENDPOINT_CRITICAL: 0, OPERATIONAL: 0 });
+}
+
+function computeReadinessPercent() {
+  const sev = issueSeverityCounts();
+  const pending = pendingCounts();
+  const cfg = SCORE_MODEL.readiness;
+  const score = cfg.base
+    - pending.blockers * cfg.lock_blocker_penalty
+    - sev.SAFETY_CRITICAL * cfg.safety_critical_penalty
+    - sev.ENDPOINT_CRITICAL * cfg.endpoint_critical_penalty
+    - pending.queries * cfg.pending_query_penalty
+    - pending.decisions * cfg.pending_human_penalty;
+  return Math.max(cfg.min, Math.min(100, score));
+}
+
+function computeRiskBreakdown(subjectId) {
+  const related = APP_ISSUES.filter((i) => i.entity_keys?.subject_id === subjectId);
+  const counts = related.reduce((acc, i) => {
+    acc[i.severity] = (acc[i.severity] || 0) + 1;
+    return acc;
+  }, { LOCK_CRITICAL: 0, SAFETY_CRITICAL: 0, ENDPOINT_CRITICAL: 0, OPERATIONAL: 0 });
+  const weights = SCORE_MODEL.risk_weights;
+  const points = counts.LOCK_CRITICAL * weights.LOCK_CRITICAL
+    + counts.SAFETY_CRITICAL * weights.SAFETY_CRITICAL
+    + counts.ENDPOINT_CRITICAL * weights.ENDPOINT_CRITICAL
+    + counts.OPERATIONAL * weights.OPERATIONAL;
+  return { counts, points };
+}
+
+function syncAgentTreeWithState() {
+  if (typeof APP_AGENT_TREE === "undefined" || !APP_AGENT_TREE?.stewards) return;
+  const custodianMap = {
+    edc: "edc_form_custodian",
+    lab: "lab_signal_custodian",
+    safety: "safety_event_custodian",
+    meds: "meds_history_custodian",
+    device: "device_epro_custodian",
+  };
+  const recordsMap = {
+    edc: APP_SAMPLE_EDC.length,
+    lab: APP_SAMPLE_LABS.length,
+    safety: APP_SAMPLE_SAFETY.length,
+    meds: APP_SAMPLE_MEDS.length,
+    device: APP_SAMPLE_DEVICE.length,
+  };
+
+  const latestByCustodian = {};
+  APP_ISSUES.forEach((issue) => {
+    const current = latestByCustodian[issue.custodian];
+    if (!current || (issue.detected_at || "") > (current.detected_at || "")) {
+      latestByCustodian[issue.custodian] = issue;
+    }
+  });
+
+  APP_AGENT_TREE.stewards.forEach((s) => {
+    const custodian = custodianMap[s.id];
+    const issues = APP_ISSUES.filter((i) => i.custodian === custodian);
+    s.issues_found = issues.length;
+    s.records_checked = recordsMap[s.id] || s.records_checked || 0;
+    s.by_severity = issues.reduce((acc, i) => {
+      acc[i.severity] = (acc[i.severity] || 0) + 1;
+      return acc;
+    }, { LOCK_CRITICAL: 0, SAFETY_CRITICAL: 0, ENDPOINT_CRITICAL: 0, OPERATIONAL: 0 });
+    s.self_healable = issues.filter((i) => i.suggested_action === "SELF_HEAL").length;
+    s.escalated = Math.max(0, s.issues_found - s.self_healable);
+    s.recent_finding = latestByCustodian[custodian]?.short_title || s.recent_finding || "No new findings";
+  });
+
+  const pending = pendingCounts();
+  const issuesBySubject = {};
+  APP_ISSUES.forEach((issue) => {
+    const subjectId = issue.entity_keys?.subject_id;
+    if (!subjectId) return;
+    if (!issuesBySubject[subjectId]) issuesBySubject[subjectId] = [];
+    issuesBySubject[subjectId].push(issue);
+  });
+  const subjectIds = Object.keys(issuesBySubject);
+  const crossLinkedSubjects = subjectIds.filter((sid) => new Set(issuesBySubject[sid].map((i) => i.custodian)).size > 1);
+
+  if (APP_AGENT_TREE?.ingestion?.feeds) {
+    const feedMap = {
+      "EDC Visits": APP_SAMPLE_EDC,
+      "Labs": APP_SAMPLE_LABS,
+      "Safety AE": APP_SAMPLE_SAFETY,
+      "Medications": APP_SAMPLE_MEDS,
+      "Device/ePRO": APP_SAMPLE_DEVICE,
+    };
+    APP_AGENT_TREE.ingestion.feeds.forEach((feed) => {
+      const arr = feedMap[feed.name];
+      if (Array.isArray(arr)) {
+        feed.records = arr.length;
+        feed.status = "ingested";
+      }
+      if (APP_STATE.lastAutomationAt) feed.last_sync = APP_STATE.lastAutomationAt;
+    });
+  }
+
+  if (APP_AGENT_TREE?.linker) {
+    APP_AGENT_TREE.linker.case_packets_created = subjectIds.length;
+    APP_AGENT_TREE.linker.cross_links = crossLinkedSubjects.length;
+    APP_AGENT_TREE.linker.total_issues_received = APP_ISSUES.length;
+    APP_AGENT_TREE.linker.issues_enriched = APP_ISSUES.filter((i) => {
+      const sid = i.entity_keys?.subject_id;
+      return sid && crossLinkedSubjects.includes(sid);
+    }).length;
+    APP_AGENT_TREE.linker.escalated_to_conductor = APP_ISSUES.length;
+    const latestIssue = [...APP_ISSUES].sort((a, b) => (a.detected_at || "").localeCompare(b.detected_at || "")).at(-1);
+    if (latestIssue?.entity_keys?.subject_id) {
+      APP_AGENT_TREE.linker.recent = `Linked ${latestIssue.short_title.toLowerCase()} for ${latestIssue.entity_keys.subject_id}`;
+    }
+  }
+
+  if (APP_AGENT_TREE?.conductor?.buckets) {
+    APP_AGENT_TREE.conductor.buckets.self_heal.count = pending.approvals;
+    APP_AGENT_TREE.conductor.buckets.site_queries.count = pending.queries;
+    APP_AGENT_TREE.conductor.buckets.human_decisions.count = pending.decisions;
+    APP_AGENT_TREE.conductor.buckets.lock_blockers.count = pending.blockers;
+    APP_AGENT_TREE.conductor.total_classified = APP_ISSUES.length;
+  }
+}
+
 /** @param {string} iso */
 function formatDate(iso) {
   if (!iso) return "";
@@ -250,7 +754,7 @@ function renderLiveOps() {
     {}
   );
 
-  const readiness = parseReadiness(APP_REPORTS.lock_readiness_pack || "");
+  const readiness = computeReadinessPercent();
   const introCard = `
     <div class="card" style="margin-bottom:12px;">
       <div class="flex-row" style="justify-content: space-between; align-items: flex-start;">
@@ -269,6 +773,7 @@ function renderLiveOps() {
   `;
 
   container.innerHTML = `
+    ${renderScreenGuide("live-ops")}
     ${introCard}
     <div class="steward-row">${stewardCards}</div>
     <div class="grid-2">
@@ -299,6 +804,7 @@ function renderLiveOps() {
       <div class="metric">
         <div class="text-muted">Readiness ${infoTip("Estimated lock readiness based on blocker volume and open risk.")}</div>
         <strong id="metric-readiness">${readiness}%</strong>
+        <div class="text-muted">Scale: percentage out of 100</div>
       </div>
       <div class="metric">
         <div class="text-muted">Active Subjects ${infoTip("Subjects with linked events and/or open issues in monitoring scope.")}</div>
@@ -322,6 +828,7 @@ function renderLiveOps() {
 
 /** Render the Agent Network screen. */
 function renderAgentNetwork() {
+  syncAgentTreeWithState();
   const container = qs("#agent-network-content");
   const agentData = typeof APP_AGENT_TREE !== "undefined" ? APP_AGENT_TREE : null;
   if (!container) return;
@@ -356,6 +863,7 @@ function renderAgentNetwork() {
   const stewardCards = agentData.stewards
     .map((s) => {
       const custodian = stewardCustodianMap[s.id];
+      const role = AGENT_ROLE_GUIDE[s.id] || {};
       const issues = APP_ISSUES.filter((i) => i.custodian === custodian);
       const miniIssues = issues
         .slice(0, 3)
@@ -372,11 +880,14 @@ function renderAgentNetwork() {
           </div>
           <div class="text-muted">${locked ? "Read-only" : "● Active"} · Checked today: <span class="data-number" data-base="${s.records_checked}" data-target="${s.records_checked}">0</span></div>
           <div class="text-muted">Issues found: <span class="data-number" data-base="${s.issues_found}" data-target="${s.issues_found}">0</span></div>
+          <div class="agent-role-line"><strong>Searches:</strong> ${role.searches || "Rule-based checks for source consistency."}</div>
+          <div class="agent-role-line"><strong>Does:</strong> ${role.does || "Flags issues and routes them for review."}</div>
           <div class="text-muted">${severity}</div>
           <div class="text-muted">Self-healable: <span class="data-number" data-base="${s.self_healable}" data-target="${s.self_healable}">0</span></div>
           <button class="link-button steward-nav" data-nav="issue-inbox" data-custodian="${custodian}">Escalated: <span class="data-number" data-base="${s.escalated}" data-target="${s.escalated}">0</span></button>
           <div class="agent-steward-details">
             <div class="text-muted">Recent: ${s.recent_finding}</div>
+            <div class="text-muted"><strong>Escalation basis:</strong> ${role.escalates || "Escalated when policy requires reviewer decision."}</div>
             ${miniIssues || "<div class='text-muted'>No issues</div>"}
             <button class="ghost steward-nav" data-nav="issue-inbox" data-custodian="${custodian}">View all</button>
           </div>
@@ -426,6 +937,7 @@ function renderAgentNetwork() {
     .join("");
 
   container.innerHTML = `
+    ${renderScreenGuide("screen-agent-network")}
     <div class="agent-network ${locked ? "locked" : ""}">
       <div>
         <div class="agent-section-title">Today's Data Ingestion Status ${infoTip("Current intake status from each external data feed.")}</div>
@@ -460,6 +972,35 @@ function renderAgentNetwork() {
 
       <div class="flow-row single"><div class="flow-line"></div></div>
       <div class="flow-label">Classified: ${conductor.total_classified} issues routed to governance</div>
+
+      <div class="routing-basis card">
+        <div class="routing-basis-head">
+          <strong>Routing Basis (Why items go to each queue)</strong>
+          ${infoTip("Decision policy that determines whether an item can be approved, queried, or needs human judgment.")}
+        </div>
+        <div class="routing-grid">
+          <div class="routing-item">
+            <div class="chip self">Self-Heal</div>
+            <div class="text-muted">${ACTION_BASIS.SELF_HEAL}</div>
+            <button class="ghost route-nav-btn" data-nav="approvals">Open Self-Heal Queue</button>
+          </div>
+          <div class="routing-item">
+            <div class="chip query">Site Query</div>
+            <div class="text-muted">${ACTION_BASIS.NEEDS_QUERY}</div>
+            <button class="ghost route-nav-btn" data-nav="issue-inbox" data-action-filter="NEEDS_QUERY">Open Query Queue</button>
+          </div>
+          <div class="routing-item">
+            <div class="chip human">Human Decision</div>
+            <div class="text-muted">${ACTION_BASIS.NEEDS_HUMAN_DECISION}</div>
+            <button class="ghost route-nav-btn" data-nav="user-inputs">Open Human Decision Queue</button>
+          </div>
+          <div class="routing-item">
+            <div class="chip human">Lock Blocker</div>
+            <div class="text-muted">${ACTION_BASIS.LOCK_CRITICAL}</div>
+            <button class="ghost route-nav-btn" data-nav="lock-readiness">Open Lock Blockers</button>
+          </div>
+        </div>
+      </div>
 
       <div class="conductor-card">
         <div class="flex-row"><span>${conductor.icon}</span><strong>${conductor.name}</strong>${infoTip("Governance router that assigns each issue to approvals, queries, decisions, or blockers.")}</div>
@@ -507,6 +1048,25 @@ function renderAgentNetwork() {
       const nav = card.dataset.nav;
       if (card.dataset.filter === "NEEDS_QUERY") {
         APP_STATE.issueFilters = { ...APP_STATE.issueFilters, action: "NEEDS_QUERY" };
+      }
+      if (nav) navigateTo(nav);
+    });
+  });
+
+  qsa(".route-nav-btn").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.preventDefault();
+      const nav = btn.dataset.nav;
+      const actionFilter = btn.dataset.actionFilter;
+      if (actionFilter) {
+        APP_STATE.issueFilters = {
+          ...APP_STATE.issueFilters,
+          action: actionFilter,
+          severity: "ALL",
+          custodian: "ALL",
+          subject: "ALL",
+          lockImpact: "ALL",
+        };
       }
       if (nav) navigateTo(nav);
     });
@@ -596,6 +1156,7 @@ function renderDataExplorer(tab = "EDC") {
     .join("");
 
   container.innerHTML = `
+    ${renderScreenGuide("data-explorer")}
     <div class="card">
       <div class="table-controls">
         <div class="text-muted">Source Table ${infoTip("Inspect source records, sort columns, and search any value to validate detections.")}</div>
@@ -673,7 +1234,11 @@ function initSharingLane(messages, locked) {
 /** @param {HTMLElement} el @param {number} target */
 function animateNumber(el, target) {
   const duration = 900;
-  const start = 0;
+  const start = Number(el.textContent || 0) || 0;
+  if (start === target) {
+    el.textContent = target.toString();
+    return;
+  }
   const startTime = performance.now();
   const step = (now) => {
     const progress = Math.min((now - startTime) / duration, 1);
@@ -692,19 +1257,15 @@ function simulateAgentNetwork(locked) {
   APP_STATE.agentIntervals = [];
 
   const numbers = qsa("#agent-network-content .data-number");
-  numbers.forEach((el) => {
-    if (locked) {
-      el.textContent = el.dataset.target || "0";
-    } else {
-      el.textContent = "0";
-    }
-  });
-
   const statuses = qsa("#agent-network-content .ingestion-status");
   const syncTimes = qsa("#agent-network-content .sync-time");
   const now = new Date();
-  const timeStr = now.toTimeString().slice(0, 8);
+  const timeStr = APP_STATE.lastAutomationAt || now.toTimeString().slice(0, 8);
   if (locked) {
+    numbers.forEach((el) => {
+      const target = Number(el.dataset.base || el.dataset.target || 0);
+      el.textContent = target.toString();
+    });
     statuses.forEach((s) => {
       s.textContent = "✓ ingested";
       s.classList.remove("syncing");
@@ -725,16 +1286,9 @@ function simulateAgentNetwork(locked) {
     APP_STATE.agentIntervals.push(t);
   });
 
-  const jitterValue = (base) => {
-    if (base >= 500) return Math.max(0, Math.round(base + (Math.random() * 40 - 20)));
-    if (base >= 50) return Math.max(0, Math.round(base + (Math.random() * 6 - 3)));
-    return Math.max(0, Math.round(base + (Math.random() * 2 - 1)));
-  };
-
   const animateAll = () => {
     numbers.forEach((el) => {
-      const base = Number(el.dataset.base || el.dataset.target || 0);
-      const target = jitterValue(base);
+      const target = Number(el.dataset.base || el.dataset.target || 0);
       el.dataset.target = String(target);
       animateNumber(el, target);
     });
@@ -805,6 +1359,11 @@ function nextIssueId() {
   return `SIM-${Date.now()}-${APP_STATE.simulationCycle}`;
 }
 
+/** @param {string} subjectId */
+function computeSubjectRiskPoints(subjectId) {
+  return computeRiskBreakdown(subjectId).points;
+}
+
 /** @param {object} issue */
 function pushQueueForIssue(issue) {
   if (issue.suggested_action === "SELF_HEAL") APP_PENDING_APPROVALS.push(issue);
@@ -844,50 +1403,59 @@ function appendActivityForIssue(issue) {
 }
 
 /** @param {object} issue */
-function updateAgentTreeFromIssue(issue) {
-  if (typeof APP_AGENT_TREE === "undefined") return;
-  const meta = CUSTODIAN_RUNTIME[issue.custodian];
-  if (!meta) return;
-  const steward = (APP_AGENT_TREE.stewards || []).find((s) => s.id === meta.steward_id);
-  if (!steward) return;
+function syncTimelineFromIssue(issue) {
+  const subjectId = issue.entity_keys?.subject_id;
+  if (!subjectId) return;
 
-  const ingestFeedMap = {
-    edc: "EDC Visits",
-    lab: "Labs",
-    safety: "Safety AE",
-    meds: "Medications",
-    device: "Device/ePRO",
+  if (!APP_SUBJECT_TIMELINES[subjectId]) {
+    APP_SUBJECT_TIMELINES[subjectId] = {
+      subject_id: subjectId,
+      site_id: issue.entity_keys.site_id || "SITE-A",
+      events: [],
+      linked_issues: [],
+      clinical_narrative: "Ongoing monitoring timeline created from current cross-source signals.",
+      open_loops: [],
+      risk_score: 0,
+    };
+  }
+
+  const timeline = APP_SUBJECT_TIMELINES[subjectId];
+  const eventTypeMap = {
+    edc_form_custodian: "visit",
+    lab_signal_custodian: "lab",
+    safety_event_custodian: "ae",
+    meds_history_custodian: "med",
+    device_epro_custodian: "device",
+  };
+  const sourceMap = {
+    edc_form_custodian: "edc_visits.csv",
+    lab_signal_custodian: "labs.csv",
+    safety_event_custodian: "safety_ae.csv",
+    meds_history_custodian: "meds.csv",
+    device_epro_custodian: "device_epro.csv",
   };
 
-  const feedName = ingestFeedMap[meta.steward_id];
-  const feed = (APP_AGENT_TREE.ingestion?.feeds || []).find((f) => f.name === feedName);
-  const checkedDelta = 5 + Math.floor(Math.random() * 16);
-  if (feed) {
-    feed.records += checkedDelta;
-    feed.last_sync = new Date().toTimeString().slice(0, 8);
-  }
+  timeline.events.push({
+    event_type: eventTypeMap[issue.custodian] || "event",
+    date: nowIso().slice(0, 10),
+    label: issue.short_title,
+    source_file: sourceMap[issue.custodian] || "unknown.csv",
+    row_id: issue.evidence?.[0]?.row_id || 0,
+    details: {
+      severity: issue.severity,
+      action: issue.suggested_action,
+      note: friendlyIssueSummary(issue),
+    },
+    linked_issue_ids: [issue.issue_id],
+  });
 
-  steward.records_checked += checkedDelta;
-  steward.issues_found += 1;
-  steward.by_severity[issue.severity] = (steward.by_severity[issue.severity] || 0) + 1;
-  if (issue.suggested_action === "SELF_HEAL") steward.self_healable += 1;
-  else steward.escalated += 1;
-  steward.recent_finding = issue.short_title;
+  timeline.events.sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+  if (!timeline.linked_issues.includes(issue.issue_id)) timeline.linked_issues.push(issue.issue_id);
 
-  if (APP_AGENT_TREE.linker) {
-    APP_AGENT_TREE.linker.total_issues_received += 1;
-    APP_AGENT_TREE.linker.issues_enriched += 1;
-    APP_AGENT_TREE.linker.cross_links += Math.random() > 0.7 ? 1 : 0;
-    APP_AGENT_TREE.linker.recent = `Linked ${issue.short_title.toLowerCase()} for ${issue.entity_keys.subject_id}`;
-  }
-
-  if (APP_AGENT_TREE.conductor) {
-    APP_AGENT_TREE.conductor.total_classified += 1;
-    if (issue.suggested_action === "SELF_HEAL") APP_AGENT_TREE.conductor.buckets.self_heal.count += 1;
-    if (issue.suggested_action === "NEEDS_QUERY") APP_AGENT_TREE.conductor.buckets.site_queries.count += 1;
-    if (issue.suggested_action === "NEEDS_HUMAN_DECISION") APP_AGENT_TREE.conductor.buckets.human_decisions.count += 1;
-    if (issue.severity === "LOCK_CRITICAL") APP_AGENT_TREE.conductor.buckets.lock_blockers.count += 1;
-  }
+  const loopText = `${severityLabel(issue.severity)}: ${friendlyIssueSummary(issue)}`;
+  if (!timeline.open_loops.includes(loopText)) timeline.open_loops.unshift(loopText);
+  timeline.open_loops = timeline.open_loops.slice(0, 10);
+  timeline.risk_score = computeSubjectRiskPoints(subjectId);
 }
 
 /** @param {object} issue */
@@ -1048,8 +1616,7 @@ function refreshLiveOpsDynamic() {
   if (totalEl) totalEl.textContent = String(totalIssues);
   if (lockEl) lockEl.textContent = String(lockCount);
   if (readinessEl) {
-    const dynamicReadiness = Math.max(45, 88 - Math.floor(totalIssues / 20) - lockCount);
-    readinessEl.textContent = `${dynamicReadiness}%`;
+    readinessEl.textContent = `${computeReadinessPercent()}%`;
   }
   if (activeSubjectsEl) activeSubjectsEl.textContent = String(Object.keys(APP_SUBJECT_TIMELINES).length);
   if (mixEl) {
@@ -1080,11 +1647,12 @@ function refreshLiveOpsDynamic() {
 }
 
 function refreshCurrentScreen() {
+  syncAgentTreeWithState();
   if (APP_STATE.currentScreen === "live-ops") refreshLiveOpsDynamic();
   if (APP_STATE.currentScreen === "screen-agent-network") renderAgentNetwork();
   if (APP_STATE.currentScreen === "data-explorer") renderDataExplorer(APP_STATE.dataTab);
   if (APP_STATE.currentScreen === "issue-inbox") renderIssueInbox();
-  if (APP_STATE.currentScreen === "subject-timeline") renderSubjectTimeline(APP_STATE.currentSubjectId);
+  // Keep timeline stable while presenting; user refreshes by changing subject selector.
   if (APP_STATE.currentScreen === "approvals") renderApprovals();
   if (APP_STATE.currentScreen === "user-inputs") renderUserInputs();
   if (APP_STATE.currentScreen === "lock-readiness") renderLockReadiness();
@@ -1093,6 +1661,7 @@ function refreshCurrentScreen() {
 
 function runAutomationTick() {
   if (APP_STATE.lockMode) return;
+  APP_STATE.lastAutomationAt = new Date().toTimeString().slice(0, 8);
   const newIssuesCount = 1 + Math.floor(Math.random() * 2);
   for (let i = 0; i < newIssuesCount; i += 1) {
     const issue = buildRuntimeIssue();
@@ -1101,8 +1670,9 @@ function runAutomationTick() {
     appendAuditForIssue(issue);
     appendActivityForIssue(issue);
     appendSampleRows(issue);
-    updateAgentTreeFromIssue(issue);
+    syncTimelineFromIssue(issue);
   }
+  syncAgentTreeWithState();
   updateBadges();
   refreshCurrentScreen();
 }
@@ -1178,6 +1748,34 @@ function renderIssueInbox() {
   const container = qs("#issue-inbox-content");
   const subjects = Array.from(new Set(APP_ISSUES.map((i) => i.entity_keys.subject_id).filter(Boolean)));
   const custodians = Array.from(new Set(APP_ISSUES.map((i) => i.custodian)));
+  const queueStats = pendingCounts();
+
+  const routeButtons = `
+    <div class="card route-shortcuts" style="margin-bottom:12px;">
+      <div class="route-shortcuts-head">
+        <strong>Why items route to different queues</strong>
+        ${infoTip("Use these shortcuts to explain queue logic and jump directly to the relevant slice of work.")}
+      </div>
+      <div class="route-shortcuts-grid">
+        <button class="route-pill self" data-route-action="SELF_HEAL">
+          Self-Heal (${queueStats.approvals})
+          <span>${ACTION_BASIS.SELF_HEAL}</span>
+        </button>
+        <button class="route-pill query" data-route-action="NEEDS_QUERY">
+          Site Query (${queueStats.queries})
+          <span>${ACTION_BASIS.NEEDS_QUERY}</span>
+        </button>
+        <button class="route-pill human" data-route-action="NEEDS_HUMAN_DECISION">
+          Human Decision (${queueStats.decisions})
+          <span>${ACTION_BASIS.NEEDS_HUMAN_DECISION}</span>
+        </button>
+        <button class="route-pill lock" data-route-severity="LOCK_CRITICAL" data-route-lock="YES">
+          Lock Blocker (${queueStats.blockers})
+          <span>${ACTION_BASIS.LOCK_CRITICAL}</span>
+        </button>
+      </div>
+    </div>
+  `;
 
   const filterRow = `
     <div class="card">
@@ -1215,7 +1813,7 @@ function renderIssueInbox() {
     </div>
   `;
 
-  container.innerHTML = `${filterRow}<div id="issue-cards" style="display:grid; gap:12px; margin-top:12px;"></div>`;
+  container.innerHTML = `${renderScreenGuide("issue-inbox")}${routeButtons}${filterRow}<div id="issue-cards" style="display:grid; gap:12px; margin-top:12px;"></div>`;
 
   qs("#filter-severity").value = APP_STATE.issueFilters.severity;
   qs("#filter-custodian").value = APP_STATE.issueFilters.custodian;
@@ -1244,7 +1842,7 @@ function renderIssueInbox() {
       });
     }
 
-    qs("#issue-summary").textContent = `${filtered.length} total · ${countBy(filtered, "LOCK_CRITICAL")} Lock Critical · ${countBy(filtered, "SAFETY_CRITICAL")} Safety Critical · ${countBy(filtered, "ENDPOINT_CRITICAL")} Endpoint Critical · ${countBy(filtered, "OPERATIONAL")} Operational`;
+    qs("#issue-summary").innerHTML = `${filtered.length} total · ${countBy(filtered, "LOCK_CRITICAL")} Lock Critical · ${countBy(filtered, "SAFETY_CRITICAL")} Safety Critical · ${countBy(filtered, "ENDPOINT_CRITICAL")} Endpoint Critical · ${countBy(filtered, "OPERATIONAL")} Operational<br><span class="text-muted">Confidence bars show detection certainty (0-100%), not medical risk magnitude.</span>`;
 
     qs("#issue-cards").innerHTML = filtered
       .map(
@@ -1269,6 +1867,27 @@ function renderIssueInbox() {
 
   qsa("#filter-severity, #filter-custodian, #filter-subject, #filter-action, #filter-lock").forEach((el) => {
     el.addEventListener("change", applyFilters);
+  });
+
+  qsa(".route-pill").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const action = btn.dataset.routeAction || "ALL";
+      const severity = btn.dataset.routeSeverity || "ALL";
+      const lock = btn.dataset.routeLock || "ALL";
+      APP_STATE.issueFilters = {
+        severity,
+        custodian: "ALL",
+        subject: "ALL",
+        action,
+        lockImpact: lock,
+      };
+      qs("#filter-severity").value = APP_STATE.issueFilters.severity;
+      qs("#filter-custodian").value = APP_STATE.issueFilters.custodian;
+      qs("#filter-subject").value = APP_STATE.issueFilters.subject;
+      qs("#filter-action").value = APP_STATE.issueFilters.action;
+      qs("#filter-lock").value = APP_STATE.issueFilters.lockImpact;
+      applyFilters();
+    });
   });
 
   applyFilters();
@@ -1319,6 +1938,7 @@ function renderIssueDetail(issueId) {
       ${severityBadge(issue.severity)}
       <h2>${issue.short_title}</h2>
       <div class="text-muted">${issue.custodian.replace(/_/g, " ")} · Confidence ${Math.round(issue.confidence * 100)}%</div>
+      <div class="text-muted">Confidence scale: 0-100% detection certainty (not severity).</div>
       <div class="text-muted">Subject ${issue.entity_keys.subject_id || ""}</div>
     </div>
     <div class="card" style="margin-top:12px;">
@@ -1378,41 +1998,46 @@ function handleIssueAction(e, issue) {
   if (APP_STATE.lockMode) return;
   if (action === "approve") {
     APP_STATE.approvedIssues.add(issue.issue_id);
+    syncAgentTreeWithState();
     showToast("Change approved and queued", "success");
     renderApprovals();
     updateBadges();
     closeIssueModal();
   } else if (action === "reject") {
+    syncAgentTreeWithState();
     showToast("Change rejected. Site notified.", "warning");
     closeIssueModal();
   } else if (action === "query") {
+    syncAgentTreeWithState();
     showToast("Drafted site query", "info");
     closeIssueModal();
   } else if (action === "decision") {
+    syncAgentTreeWithState();
     closeIssueModal();
     navigateTo("user-inputs", { issueId: issue.issue_id });
   } else if (action === "ack") {
+    syncAgentTreeWithState();
     showToast("Issue acknowledged", "info");
     closeIssueModal();
   }
 }
 function renderSubjectTimeline(subjectId) {
   const container = qs("#subject-timeline-content");
-  const subjects = Object.values(APP_SUBJECT_TIMELINES)
-    .sort((a, b) => b.risk_score - a.risk_score)
-    .map((t) => t.subject_id);
+  const subjects = Object.keys(APP_SUBJECT_TIMELINES || {})
+    .sort((a, b) => computeRiskBreakdown(b).points - computeRiskBreakdown(a).points);
 
   const selected = subjectId || subjects[0];
   APP_STATE.currentSubjectId = selected;
   const timeline = APP_SUBJECT_TIMELINES[selected];
   if (!timeline) return;
+  const risk = computeRiskBreakdown(selected);
 
   const selector = `
     <select id="subject-selector">
       ${subjects
         .map((s) => {
-          const t = APP_SUBJECT_TIMELINES[s];
-          return `<option value="${s}" ${s === selected ? "selected" : ""}>${s} (risk: ${t.risk_score})</option>`;
+          const points = computeRiskBreakdown(s).points;
+          return `<option value="${s}" ${s === selected ? "selected" : ""}>${s} (risk: ${points})</option>`;
         })
         .join("")}
     </select>
@@ -1421,11 +2046,30 @@ function renderSubjectTimeline(subjectId) {
   const events = timeline.events
     .map((ev, idx) => {
       const dotClass = ev.event_type;
-      const warning = ev.linked_issue_ids?.length
-        ? `<span class="timeline-warning" data-issues="${ev.linked_issue_ids.join(",")}">⚠ ${ev.linked_issue_ids.length} issues</span>`
+      const linkedIds = ev.linked_issue_ids || [];
+      const linkedIssues = linkedIds
+        .map((issueId) => APP_ISSUES.find((i) => i.issue_id === issueId))
+        .filter(Boolean);
+      const warning = linkedIds.length
+        ? `
+          <div class="timeline-warning-wrap">
+            <span class="timeline-warning">⚠ ${linkedIds.length} linked issues</span>
+            <div class="timeline-warning-list">
+              ${linkedIssues.length
+                ? linkedIssues
+                    .slice(0, 4)
+                    .map((issue) => `<button class="timeline-issue-link" data-issue="${issue.issue_id}">${severityLabel(issue.severity)} · ${issue.short_title}</button>`)
+                    .join("")
+                : linkedIds
+                    .slice(0, 4)
+                    .map((issueId) => `<button class="timeline-issue-link" data-issue="${issueId}">${issueId}</button>`)
+                    .join("")}
+              ${linkedIds.length > 4 ? `<div class="text-muted">+${linkedIds.length - 4} more linked issues</div>` : ""}
+            </div>
+          </div>`
         : "";
       return `
-        <div class="timeline-event" style="animation-delay:${(idx + 1) * 0.1}s" data-issues="${ev.linked_issue_ids.join(",")}">
+        <div class="timeline-event" style="animation-delay:${(idx + 1) * 0.1}s" data-issues="${linkedIds.join(",")}">
           <div class="timeline-dot ${dotClass}"></div>
           <div class="text-muted">${ev.date}</div>
           <strong>${ev.label}</strong>
@@ -1444,7 +2088,11 @@ function renderSubjectTimeline(subjectId) {
   const contradiction = selected === "SUB-101" ? `<div class="contradiction-line"></div>` : "";
 
   container.innerHTML = `
-    <div class="card" style="margin-bottom:12px;">${selector}</div>
+    ${renderScreenGuide("subject-timeline")}
+    <div class="card" style="margin-bottom:12px;">
+      ${selector}
+      <div class="text-muted" style="margin-top:8px;">Timeline view is stable by design and does not auto-refresh every cycle. This prevents context loss during explanation.</div>
+    </div>
     <div class="timeline-layout">
       <div class="card">
         <div class="timeline">${events}${contradiction}</div>
@@ -1460,7 +2108,9 @@ function renderSubjectTimeline(subjectId) {
         </div>
         <div class="card">
           <strong>Risk Score</strong> ${infoTip("Weighted severity score to prioritize high-risk subjects.")}
-          <div class="risk-score">${timeline.risk_score}</div>
+          <div class="risk-score">${risk.points}</div>
+          <div class="text-muted">Score type: points (not percentage)</div>
+          <div class="text-muted">Formula: Lock (${risk.counts.LOCK_CRITICAL})×10 + Safety (${risk.counts.SAFETY_CRITICAL})×7 + Endpoint (${risk.counts.ENDPOINT_CRITICAL})×5 + Operational (${risk.counts.OPERATIONAL})×1</div>
         </div>
         <div class="card">
           <details>
@@ -1476,9 +2126,9 @@ function renderSubjectTimeline(subjectId) {
     renderSubjectTimeline(e.target.value);
   });
 
-  qsa(".timeline-warning").forEach((el) => {
+  qsa(".timeline-issue-link").forEach((el) => {
     el.addEventListener("click", () => {
-      const issueId = el.dataset.issues.split(",")[0];
+      const issueId = el.dataset.issue;
       if (issueId) openIssueModal(issueId);
     });
   });
@@ -1517,7 +2167,7 @@ function renderApprovals() {
     )
     .join("");
 
-  container.innerHTML = header + (cards || "<div class='text-muted'>No items match your filters</div>");
+  container.innerHTML = renderScreenGuide("approvals") + header + (cards || "<div class='text-muted'>No items match your filters</div>");
 
   qsa(".approve-btn").forEach((btn) => {
     btn.addEventListener("click", () => {
@@ -1528,6 +2178,7 @@ function renderApprovals() {
         return;
       }
       APP_STATE.approvedIssues.add(btn.dataset.issue);
+      syncAgentTreeWithState();
       showToast("Change approved", "success");
       renderApprovals();
       updateBadges();
@@ -1539,6 +2190,7 @@ function renderApprovals() {
       if (APP_STATE.lockMode) return;
       showToast("Change rejected. Reason captured.", "warning");
       APP_STATE.approvedIssues.add(btn.dataset.issue);
+      syncAgentTreeWithState();
       renderApprovals();
       updateBadges();
     });
@@ -1573,10 +2225,8 @@ function renderUserInputs() {
     })
     .join("");
 
-  container.innerHTML = cards || "<div class='text-muted'>No items match your filters</div>";
-  if (items.length) {
-    container.insertAdjacentHTML("afterbegin", `<div class="card" style="margin-bottom:12px;"><strong>Human Decision Queue</strong> ${infoTip("Capture required clinical or data-management decisions with rationale.")}</div>`);
-  }
+  const queueIntro = items.length ? `<div class="card" style="margin-bottom:12px;"><strong>Human Decision Queue</strong> ${infoTip("Capture required clinical or data-management decisions with rationale.")}</div>` : "";
+  container.innerHTML = renderScreenGuide("user-inputs") + queueIntro + (cards || "<div class='text-muted'>No items match your filters</div>");
 
   qsa(".decision-submit").forEach((btn) => {
     btn.addEventListener("click", () => {
@@ -1587,6 +2237,7 @@ function renderUserInputs() {
         return;
       }
       APP_STATE.completedDecisions.add(btn.dataset.issue);
+      syncAgentTreeWithState();
       showToast("Decision recorded", "success");
       renderUserInputs();
       updateBadges();
@@ -1662,8 +2313,8 @@ function buildDecisionForm(issue) {
 
 function renderLockReadiness() {
   const container = qs("#lock-readiness-content");
-  const baseline = parseReadiness(APP_REPORTS.lock_readiness_pack || "");
-  const readiness = Math.max(40, baseline - APP_LOCK_BLOCKERS.length * 2 - Math.floor(APP_ISSUES.length / 30));
+  const readiness = computeReadinessPercent();
+  const pending = pendingCounts();
   const checklist = [
     { label: "All critical queries resolved", ok: APP_SITE_QUERIES.length === 0 },
     { label: "All external data reconciled", ok: APP_LOCK_BLOCKERS.length === 0 },
@@ -1685,6 +2336,7 @@ function renderLockReadiness() {
     .join("");
 
   container.innerHTML = `
+    ${renderScreenGuide("lock-readiness")}
     <div class="grid-2">
       <div class="card">
         <strong>Readiness Checklist</strong> ${infoTip("Checklist gates that must pass before lock can proceed.")}
@@ -1700,6 +2352,8 @@ function renderLockReadiness() {
             stroke-dasharray="314" stroke-dashoffset="${314 - (314 * readiness) / 100}"></circle>
         </svg>
         <div class="risk-score">${readiness}%</div>
+        <div class="text-muted">Score type: percentage out of 100</div>
+        <div class="text-muted">Calculation basis: blockers, critical severities, and pending decision/query queues.</div>
       </div>
     </div>
     <div class="card" style="margin-top:12px;">
@@ -1715,6 +2369,11 @@ function renderLockReadiness() {
           <span class="slider"></span>
         </label>
       </div>
+    </div>
+    <div class="card" style="margin-top:12px;">
+      <strong>Why This Score Moved</strong>
+      <div class="text-muted">Pending approvals: ${pending.approvals} · Pending human decisions: ${pending.decisions} · Pending site queries: ${pending.queries} · Lock blockers: ${pending.blockers}</div>
+      <div class="text-muted">Interpretation: higher blockers and unresolved critical items reduce lock readiness.</div>
     </div>
   `;
 
@@ -1740,6 +2399,7 @@ function renderAuditReports(tab = "audit") {
 
   if (tab === "reports") {
     container.innerHTML = `
+      ${renderScreenGuide("audit-reports")}
       ${tabs}
       <div class="grid-2" style="margin-top:12px;">
         <div class="card">
@@ -1760,6 +2420,7 @@ function renderAuditReports(tab = "audit") {
     const subjects = Array.from(new Set(APP_ISSUES.map((i) => i.entity_keys.subject_id).filter(Boolean)));
 
     container.innerHTML = `
+      ${renderScreenGuide("audit-reports")}
       ${tabs}
       <div class="card" style="margin-top:12px;">
         <div class="table-controls">
@@ -1883,12 +2544,6 @@ function renderMarkdown(md) {
   return html.replace(/\n/g, "<br>");
 }
 
-/** @param {string} report */
-function parseReadiness(report) {
-  const match = report.match(/Readiness score: (\d+)%/);
-  return match ? Number(match[1]) : 68;
-}
-
 // ========== CHAT ==========
 function initChat() {
   const panel = qs("#chat-panel");
@@ -1988,6 +2643,8 @@ function linkifyChat(text) {
 
 // ========== INIT ==========
 document.addEventListener("DOMContentLoaded", () => {
+  APP_STATE.lastAutomationAt = new Date().toTimeString().slice(0, 8);
+  syncAgentTreeWithState();
   renderLiveOps();
   renderIssueInbox();
   initChat();
@@ -2001,6 +2658,22 @@ document.addEventListener("DOMContentLoaded", () => {
 
   qs("#issue-detail-modal").addEventListener("click", (e) => {
     if (e.target.dataset.close) closeIssueModal();
+  });
+
+  const openGuide = qs("#open-screen-guide");
+  if (openGuide) {
+    openGuide.addEventListener("click", () => openScreenManual(APP_STATE.currentScreen));
+  }
+
+  qs("#screen-guide-modal").addEventListener("click", (e) => {
+    if (e.target.dataset.closeManual) closeScreenManual();
+  });
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      closeIssueModal();
+      closeScreenManual();
+    }
   });
 
   document.body.addEventListener("click", (e) => {

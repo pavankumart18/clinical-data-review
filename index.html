@@ -44,6 +44,7 @@
         </div>
         <div class="topbar-actions">
           <span id="lock-mode-pill" class="pill hidden">Lock Mode</span>
+          <button id="open-screen-guide" class="ghost">Screen Guide</button>
           <button id="open-chat" class="ghost">Ask Aegis</button>
         </div>
       </header>
@@ -100,6 +101,14 @@
     <div class="modal-card">
       <button class="modal-close" data-close="true">×</button>
       <div id="issue-detail-content"></div>
+    </div>
+  </div>
+
+  <div id="screen-guide-modal" class="modal hidden">
+    <div class="modal-backdrop" data-close-manual="true"></div>
+    <div class="modal-card manual-modal-card">
+      <button class="modal-close" data-close-manual="true">×</button>
+      <div id="screen-guide-content"></div>
     </div>
   </div>
 
