@@ -138,6 +138,11 @@ function actionChip(action) {
   return `<span class="chip ${cls}">${action.replace(/_/g, " ")}</span>`;
 }
 
+/** @param {string} text */
+function infoTip(text) {
+  return `<span class="info-tip"><button class="info-btn" type="button" aria-label="Information">i</button><span class="info-pop">${text}</span></span>`;
+}
+
 /** @param {string} iso */
 function formatDate(iso) {
   if (!iso) return "";
@@ -269,14 +274,14 @@ function renderLiveOps() {
     <div class="grid-2">
       <div class="card">
         <div class="flex-row" style="justify-content: space-between; margin-bottom: 8px;">
-          <strong>Activity Feed</strong>
+          <strong>Activity Feed ${infoTip("Streaming log of steward detections and routing events as they happen.")}</strong>
           <span class="text-muted">Live playback</span>
         </div>
         <div class="feed" id="activity-feed"></div>
       </div>
       <div class="card">
         <div class="flex-row" style="justify-content: space-between; margin-bottom: 8px;">
-          <strong>Attention Now</strong>
+          <strong>Attention Now ${infoTip("Highest-priority issues ranked by severity and urgency.")}</strong>
           <span class="text-muted">Top 5 by severity</span>
         </div>
         <div id="attention-now-list" style="display: grid; gap: 8px;">${topIssues}</div>
@@ -284,23 +289,23 @@ function renderLiveOps() {
     </div>
     <div class="metrics-bar">
       <div class="metric">
-        <div class="text-muted">Total Issues</div>
+        <div class="text-muted">Total Issues ${infoTip("All open issues currently tracked across data sources.")}</div>
         <strong id="metric-total-issues">${totalIssues}</strong>
       </div>
       <div class="metric">
-        <div class="text-muted">Lock Blockers</div>
+        <div class="text-muted">Lock Blockers ${infoTip("Critical items that must be resolved before database lock.")}</div>
         <strong id="metric-lock-blockers">${APP_LOCK_BLOCKERS.length}</strong>
       </div>
       <div class="metric">
-        <div class="text-muted">Readiness</div>
+        <div class="text-muted">Readiness ${infoTip("Estimated lock readiness based on blocker volume and open risk.")}</div>
         <strong id="metric-readiness">${readiness}%</strong>
       </div>
       <div class="metric">
-        <div class="text-muted">Active Subjects</div>
+        <div class="text-muted">Active Subjects ${infoTip("Subjects with linked events and/or open issues in monitoring scope.")}</div>
         <strong id="metric-active-subjects">${Object.keys(APP_SUBJECT_TIMELINES).length}</strong>
       </div>
       <div class="metric">
-        <div class="text-muted">Severity Mix</div>
+        <div class="text-muted">Severity Mix ${infoTip("Distribution of issues by criticality level.")}</div>
         <div id="metric-severity-mix" class="text-muted">Lock ${counts.LOCK_CRITICAL || 0} · Safety ${counts.SAFETY_CRITICAL || 0} · Endpoint ${counts.ENDPOINT_CRITICAL || 0} · Operational ${counts.OPERATIONAL || 0}</div>
       </div>
     </div>
@@ -423,7 +428,7 @@ function renderAgentNetwork() {
   container.innerHTML = `
     <div class="agent-network ${locked ? "locked" : ""}">
       <div>
-        <div class="agent-section-title">Today's Data Ingestion Status</div>
+        <div class="agent-section-title">Today's Data Ingestion Status ${infoTip("Current intake status from each external data feed.")}</div>
         <div class="automation-strip">
           <div class="automation-label">Automation cycle (updates every 5s)</div>
           <div class="automation-bar"><span></span></div>
@@ -433,7 +438,7 @@ function renderAgentNetwork() {
       </div>
 
       <div>
-        <div class="agent-section-title">Layer 1: Data Stewards</div>
+        <div class="agent-section-title">Layer 1: Data Stewards ${infoTip("Rule custodians that validate data quality and detect anomalies.")}</div>
         <div class="steward-grid">${stewardCards}</div>
       </div>
 
@@ -447,7 +452,7 @@ function renderAgentNetwork() {
       <div class="flow-label">Escalated: ${totalEscalated} to Timeline Linker</div>
 
       <div class="linker-card">
-        <div class="flex-row"><span>${linker.icon}</span><strong>${linker.name}</strong></div>
+        <div class="flex-row"><span>${linker.icon}</span><strong>${linker.name}</strong>${infoTip("Cross-source correlator that builds subject-level narratives from multiple systems.")}</div>
         <div class="text-muted">Correlating findings across stewards · Building subject timelines</div>
         <div class="text-muted"><span class="data-number" data-base="${linker.case_packets_created}" data-target="${linker.case_packets_created}">0</span> case packets · <span class="data-number" data-base="${linker.cross_links}" data-target="${linker.cross_links}">0</span> cross-links</div>
         <div class="text-muted">Recent: ${linker.recent}</div>
@@ -457,7 +462,7 @@ function renderAgentNetwork() {
       <div class="flow-label">Classified: ${conductor.total_classified} issues routed to governance</div>
 
       <div class="conductor-card">
-        <div class="flex-row"><span>${conductor.icon}</span><strong>${conductor.name}</strong></div>
+        <div class="flex-row"><span>${conductor.icon}</span><strong>${conductor.name}</strong>${infoTip("Governance router that assigns each issue to approvals, queries, decisions, or blockers.")}</div>
         <div class="text-muted">Classifying issues · Enforcing governance · Routing decisions</div>
         <div class="conductor-buckets">${bucketCards}</div>
       </div>
@@ -469,12 +474,12 @@ function renderAgentNetwork() {
       </div>
 
       <div>
-        <div class="agent-section-title">Layer 4: Human Review</div>
+        <div class="agent-section-title">Layer 4: Human Review ${infoTip("Final review queues requiring explicit human confirmation.")}</div>
         <div class="human-grid">${humanCards}</div>
       </div>
 
       <div class="escalation-reasons">
-        <strong>Why escalation happens</strong>
+        <strong>Why escalation happens ${infoTip("Policy-driven explanation of why certain items must go to human review.")}</strong>
         <div class="text-muted" style="margin-top:6px;">${reasons}</div>
       </div>
     </div>
@@ -593,6 +598,7 @@ function renderDataExplorer(tab = "EDC") {
   container.innerHTML = `
     <div class="card">
       <div class="table-controls">
+        <div class="text-muted">Source Table ${infoTip("Inspect source records, sort columns, and search any value to validate detections.")}</div>
         <div class="table-tabs">${tabs}</div>
         <input id="table-search" type="text" placeholder="Search" />
         <div id="row-count" class="text-muted"></div>
@@ -1175,6 +1181,7 @@ function renderIssueInbox() {
 
   const filterRow = `
     <div class="card">
+      <div class="text-muted" style="margin-bottom:8px;">Triage Controls ${infoTip("Filter by severity, steward, subject, action, and lock impact to focus review.")}</div>
       <div class="table-controls">
         <select id="filter-severity">
           <option value="ALL">All severities</option>
@@ -1315,7 +1322,7 @@ function renderIssueDetail(issueId) {
       <div class="text-muted">Subject ${issue.entity_keys.subject_id || ""}</div>
     </div>
     <div class="card" style="margin-top:12px;">
-      <strong>Evidence</strong>
+      <strong>Evidence</strong> ${infoTip("Source fields and values used by the system to justify this issue.")}
       <table class="data-table" style="margin-top:8px;">
         <thead><tr><th>Source</th><th>Row</th><th>Column</th><th>Value</th><th>Note</th></tr></thead>
         <tbody>${evidenceRows}</tbody>
@@ -1327,17 +1334,17 @@ function renderIssueDetail(issueId) {
       <span class="chip ${impactLock === "Yes" ? "human" : ""}">Lock Impact: ${impactLock}</span>
     </div>
     <div class="card" style="margin-top:12px;">
-      <strong>Plain‑Language Summary</strong>
+      <strong>Plain‑Language Summary</strong> ${infoTip("Non-technical explanation for quick review.")}
       <p>${friendlyIssueSummary(issue)}</p>
     </div>
     <div class="card" style="margin-top:12px;">
-      <strong>Why This Matters</strong>
+      <strong>Why This Matters</strong> ${infoTip("Impact context describing safety, endpoint, or operational risk.")}
       <p>${humanizeText(issue.description)}</p>
     </div>
     ${proposed}
     <div class="modal-actions">${actions}</div>
     <div class="card" style="margin-top:12px;">
-      <strong>Mini Audit Trail</strong>
+      <strong>Mini Audit Trail</strong> ${infoTip("Most recent system/user actions associated with this issue.")}
       ${auditRows || "<div class=\"text-muted\">No audit entries yet.</div>"}
     </div>
   `;
@@ -1444,20 +1451,20 @@ function renderSubjectTimeline(subjectId) {
       </div>
       <div class="right-panel">
         <div class="card">
-          <strong>Clinical Narrative</strong>
+          <strong>Clinical Narrative</strong> ${infoTip("Summarized patient story synthesized across all data sources.")}
           <p>${timeline.clinical_narrative}</p>
         </div>
         <div class="card">
-          <strong>Open Loops</strong>
+          <strong>Open Loops</strong> ${infoTip("Unresolved items still requiring query, decision, or correction.")}
           ${openLoops || "<div class='text-muted'>No open loops</div>"}
         </div>
         <div class="card">
-          <strong>Risk Score</strong>
+          <strong>Risk Score</strong> ${infoTip("Weighted severity score to prioritize high-risk subjects.")}
           <div class="risk-score">${timeline.risk_score}</div>
         </div>
         <div class="card">
           <details>
-            <summary><strong>Timeline Linker Notes</strong></summary>
+            <summary><strong>Timeline Linker Notes</strong> ${infoTip("Cross-source linkage rationale used during timeline synthesis.")}</summary>
             <p>Cross-source linkages detected based on overlapping dates, signals, and textual contradictions.</p>
           </details>
         </div>
@@ -1483,7 +1490,7 @@ function renderApprovals() {
 
   const header = `
     <div class="card" style="margin-bottom:12px;">
-      <strong>${pending.length} proposals pending · ${new Set(pending.map((i) => i.entity_keys.subject_id)).size} subjects · ${pending.filter((i) => i.proposed_change?.affects_lock).length} lock-impacting</strong>
+      <strong>${pending.length} proposals pending · ${new Set(pending.map((i) => i.entity_keys.subject_id)).size} subjects · ${pending.filter((i) => i.proposed_change?.affects_lock).length} lock-impacting</strong> ${infoTip("Review and approve system-proposed corrections before they are applied.")}
       ${APP_STATE.lockMode ? "<div class='text-muted'>Database locked — approvals disabled. Viewing read-only.</div>" : ""}
     </div>
   `;
@@ -1567,6 +1574,9 @@ function renderUserInputs() {
     .join("");
 
   container.innerHTML = cards || "<div class='text-muted'>No items match your filters</div>";
+  if (items.length) {
+    container.insertAdjacentHTML("afterbegin", `<div class="card" style="margin-bottom:12px;"><strong>Human Decision Queue</strong> ${infoTip("Capture required clinical or data-management decisions with rationale.")}</div>`);
+  }
 
   qsa(".decision-submit").forEach((btn) => {
     btn.addEventListener("click", () => {
@@ -1677,13 +1687,13 @@ function renderLockReadiness() {
   container.innerHTML = `
     <div class="grid-2">
       <div class="card">
-        <strong>Readiness Checklist</strong>
+        <strong>Readiness Checklist</strong> ${infoTip("Checklist gates that must pass before lock can proceed.")}
         ${checklist
           .map((c) => `<div>${c.ok ? "✅" : "❌"} ${c.label}</div>`)
           .join("")}
       </div>
       <div class="card" style="text-align:center;">
-        <strong>Readiness</strong>
+        <strong>Readiness</strong> ${infoTip("Dynamic score summarizing lock preparedness across open issues.")}
         <svg class="progress-ring" viewBox="0 0 120 120">
           <circle cx="60" cy="60" r="50" stroke="#E5E7EB" stroke-width="10" fill="none"></circle>
           <circle cx="60" cy="60" r="50" stroke="#F59E0B" stroke-width="10" fill="none"
@@ -1693,11 +1703,11 @@ function renderLockReadiness() {
       </div>
     </div>
     <div class="card" style="margin-top:12px;">
-      <strong>Lock Blockers</strong>
+      <strong>Lock Blockers</strong> ${infoTip("Critical unresolved items that directly prevent lock/freeze.")}
       <div style="display:grid; gap:8px; margin-top:8px;">${blockers || "<div class='text-muted'>No blockers</div>"}</div>
     </div>
     <div class="card" style="margin-top:12px;">
-      <strong>Simulate Database Lock</strong>
+      <strong>Simulate Database Lock</strong> ${infoTip("Enable read-only mode to preview behavior after lock.")}
       <div class="flex-row" style="justify-content: space-between;">
         <span>Lock Mode toggle</span>
         <label class="switch">
@@ -1733,12 +1743,12 @@ function renderAuditReports(tab = "audit") {
       ${tabs}
       <div class="grid-2" style="margin-top:12px;">
         <div class="card">
-          <strong>Data Review Report</strong>
+          <strong>Data Review Report</strong> ${infoTip("Narrative summary of quality findings and review progress.")}
           <div class="markdown">${renderMarkdown(APP_REPORTS.data_review_report || "")}</div>
           <button class="ghost copy-report" data-report="data">Copy to Clipboard</button>
         </div>
         <div class="card">
-          <strong>Lock Readiness Pack</strong>
+          <strong>Lock Readiness Pack</strong> ${infoTip("Formal readiness package for lock governance and sign-off.")}
           <div class="markdown">${renderMarkdown(APP_REPORTS.lock_readiness_pack || "")}</div>
           <button class="ghost copy-report" data-report="lock">Copy to Clipboard</button>
         </div>
@@ -1760,7 +1770,7 @@ function renderAuditReports(tab = "audit") {
         <div id="audit-table"></div>
       </div>
       <div class="card" style="margin-top:12px;">
-        <strong>Trace View</strong>
+        <strong>Trace View</strong> ${infoTip("Step-by-step audit lineage for a selected issue from detection to execution.")}
         <select id="trace-issue">
           ${APP_ISSUES.slice(0, 20).map((i) => `<option value="${i.issue_id}">${i.issue_id}</option>`).join("")}
         </select>
