@@ -22,13 +22,13 @@
 # For more information: https://github.github.com/gh-aw/introduction/overview/
 #
 # This workflow creates daily repo status reports. It gathers recent repository
-# activity (issues, PRs, discussions, releases, code changes) and generates
+# activity (code changes) and generates
 # engaging GitHub issues with productivity insights, community highlights,
 # and project recommendations.
 #
 # Source: githubnext/agentics/workflows/daily-repo-status.md@2eebadf845fc5654eb7ed82f1f99e514b9a4c611
 #
-# gh-aw-metadata: {"schema_version":"v1","frontmatter_hash":"590016bcba08ffef9268adc2ff6f236ae56b57d8874fd672268c0743869331cf","compiler_version":"v0.51.7"}
+# gh-aw-metadata: {"schema_version":"v1","frontmatter_hash":"3f8e2193b0bfb53b9cea3a4f84a09c7ce4552c8eb08fbf9a27fe64bd99cb3db3","compiler_version":"v0.51.7"}
 
 name: "Daily Repo Status"
 "on":
@@ -234,7 +234,9 @@ jobs:
     needs: activation
     runs-on: ubuntu-latest
     permissions:
+      contents: read
       issues: read
+      pull-requests: read
     concurrency:
       group: "gh-aw-codex-${{ github.workflow }}"
     env:
@@ -248,6 +250,7 @@ jobs:
       GH_AW_SAFE_OUTPUTS_TOOLS_PATH: /opt/gh-aw/safeoutputs/tools.json
       GH_AW_WORKFLOW_ID_SANITIZED: dailyrepostatus
     outputs:
+      checkout_pr_success: ${{ steps.checkout-pr.outputs.checkout_pr_success || 'true' }}
       detection_conclusion: ${{ steps.detection_conclusion.outputs.conclusion }}
       detection_success: ${{ steps.detection_conclusion.outputs.success }}
       has_patch: ${{ steps.collect_output.outputs.has_patch }}
@@ -277,6 +280,20 @@ jobs:
           SERVER_URL_STRIPPED="${SERVER_URL#https://}"
           git remote set-url origin "https://x-access-token:${{ github.token }}@${SERVER_URL_STRIPPED}/${REPO_NAME}.git"
           echo "Git configured with standard GitHub Actions identity"
+      - name: Checkout PR branch
+        id: checkout-pr
+        if: |
+          (github.event.pull_request) || (github.event.issue.pull_request)
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        env:
+          GH_TOKEN: ${{ secrets.GH_AW_GITHUB_MCP_SERVER_TOKEN || secrets.GH_AW_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
+        with:
+          github-token: ${{ secrets.GH_AW_GITHUB_MCP_SERVER_TOKEN || secrets.GH_AW_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
+          script: |
+            const { setupGlobals } = require('/opt/gh-aw/actions/setup_globals.cjs');
+            setupGlobals(core, github, context, exec, io);
+            const { main } = require('/opt/gh-aw/actions/checkout_pr_branch.cjs');
+            await main();
       - name: Setup Node.js
         uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
         with:
@@ -803,7 +820,7 @@ jobs:
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         env:
           WORKFLOW_NAME: "Daily Repo Status"
-          WORKFLOW_DESCRIPTION: "This workflow creates daily repo status reports. It gathers recent repository\nactivity (issues, PRs, discussions, releases, code changes) and generates\nengaging GitHub issues with productivity insights, community highlights,\nand project recommendations."
+          WORKFLOW_DESCRIPTION: "This workflow creates daily repo status reports. It gathers recent repository\nactivity (code changes) and generates\nengaging GitHub issues with productivity insights, community highlights,\nand project recommendations."
           HAS_PATCH: ${{ steps.collect_output.outputs.has_patch }}
         with:
           script: |
@@ -944,6 +961,7 @@ jobs:
           GH_AW_AGENT_CONCLUSION: ${{ needs.agent.result }}
           GH_AW_WORKFLOW_ID: "daily-repo-status"
           GH_AW_SECRET_VERIFICATION_RESULT: ${{ needs.activation.outputs.secret_verification_result }}
+          GH_AW_CHECKOUT_PR_SUCCESS: ${{ needs.agent.outputs.checkout_pr_success }}
           GH_AW_GROUP_REPORTS: "false"
           GH_AW_TIMEOUT_MINUTES: "20"
         with:
