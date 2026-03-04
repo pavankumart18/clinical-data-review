@@ -1,7 +1,7 @@
 ---
 description: |
   This workflow creates daily repo status reports. It gathers recent repository
-  activity (issues, PRs, discussions, releases, code changes) and generates
+  activity (issues) and generates
   engaging GitHub issues with productivity insights, community highlights,
   and project recommendations.
 
@@ -10,9 +10,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
   issues: read
-  pull-requests: read
 
 network: defaults
 
@@ -39,10 +37,7 @@ Create an upbeat daily status report for the repo as a GitHub issue.
 
 ## What to include
 
-- Recent repository activity (issues, PRs, discussions, releases, code changes)
-- Progress tracking, goal reminders and highlights
-- Project status and recommendations
-- Actionable next steps for maintainers
+- Recent repository activity (issues, PRs)
 
 ## Style
 
