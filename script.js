@@ -1199,6 +1199,7 @@ function renderDataExplorer(tab = "EDC") {
 /** @param {Array} messages @param {boolean} locked */
 function initSharingLane(messages, locked) {
   const messageEl = qs("#sharing-message");
+  const subtitleEl = qs("#sharing-subtitle");
   if (!messageEl) return;
   if (APP_STATE.sharingInterval) clearInterval(APP_STATE.sharingInterval);
   APP_STATE.sharingInterval = null;
@@ -1206,29 +1207,47 @@ function initSharingLane(messages, locked) {
 
   if (!messages || !messages.length) {
     messageEl.textContent = "No sharing messages available";
-    messageEl.style.animation = "none";
-    messageEl.style.left = "12px";
+    messageEl.classList.remove("animate");
+    messageEl.style.transition = "none";
+    messageEl.style.transform = "translateX(0)";
+    if (subtitleEl) subtitleEl.textContent = "No cross-steward messages are available right now.";
     return;
   }
 
   if (locked) {
     messageEl.textContent = "Monitoring only — no new proposals";
-    messageEl.style.animation = "none";
-    messageEl.style.left = "12px";
+    messageEl.classList.remove("animate");
+    messageEl.style.transition = "none";
+    messageEl.style.transform = "translateX(0)";
+    if (subtitleEl) subtitleEl.textContent = "Sharing lane is paused in lock mode.";
     return;
   }
+
+  const animateMessageFlow = () => {
+    const lane = messageEl.closest(".sharing-lane");
+    const laneWidth = Math.max((lane?.clientWidth || 420) - 24, 160);
+    const msgWidth = Math.min(messageEl.scrollWidth, laneWidth);
+    const travel = Math.max(24, laneWidth - msgWidth);
+    messageEl.style.transition = "none";
+    messageEl.style.transform = "translateX(0)";
+    void messageEl.offsetHeight;
+    messageEl.style.transition = "transform 6.4s linear";
+    messageEl.style.transform = `translateX(${travel}px)`;
+  };
 
   const showMessage = () => {
     const item = messages[APP_STATE.sharingIndex % messages.length];
     messageEl.textContent = `${item.from} → ${item.to}: ${item.msg}`;
-    messageEl.style.animation = "none";
+    messageEl.classList.remove("animate");
     void messageEl.offsetHeight;
-    messageEl.style.animation = "";
+    messageEl.classList.add("animate");
+    animateMessageFlow();
+    if (subtitleEl) subtitleEl.textContent = "Stewards exchange findings before routing to governance.";
     APP_STATE.sharingIndex += 1;
   };
 
   showMessage();
-  APP_STATE.sharingInterval = setInterval(showMessage, 3000);
+  APP_STATE.sharingInterval = setInterval(showMessage, 8500);
 }
 
 /** @param {HTMLElement} el @param {number} target */

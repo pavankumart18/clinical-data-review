@@ -1093,26 +1093,38 @@ button:disabled {
   border-radius: 12px;
   background: #F8FAFC;
   overflow: hidden;
-  min-height: 56px;
+  min-height: 96px;
 }
 
 .sharing-line {
   height: 2px;
+  margin-top: 10px;
   background: repeating-linear-gradient(to right, var(--accent) 0px, var(--accent) 6px, transparent 6px, transparent 12px);
   animation: flow-right 2s linear infinite;
 }
 
 .sharing-message {
   position: absolute;
-  top: 8px;
-  left: -60%;
+  top: 20px;
+  left: 12px;
+  right: auto;
+  max-width: calc(100% - 24px);
   background: white;
   border: 1px solid var(--border);
-  border-radius: 999px;
-  padding: 4px 10px;
+  border-radius: 10px;
+  padding: 8px 10px;
   font-size: 12px;
+  line-height: 1.4;
   white-space: nowrap;
-  animation: sharing-slide 3s linear infinite;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 1;
+  transform: translateY(0);
+  will-change: transform;
+}
+
+.sharing-message.animate {
+  animation: sharing-enter 0.45s ease;
 }
 
 @keyframes flow-right {
@@ -1120,10 +1132,9 @@ button:disabled {
   100% { background-position: 24px 0; }
 }
 
-@keyframes sharing-slide {
-  0% { transform: translateX(0); opacity: 0; }
-  10% { opacity: 1; }
-  100% { transform: translateX(220%); opacity: 0; }
+@keyframes sharing-enter {
+  0% { transform: translateY(6px); opacity: 0; }
+  100% { transform: translateY(0); opacity: 1; }
 }
 
 .linker-card,
